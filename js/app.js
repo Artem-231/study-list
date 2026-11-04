@@ -65,6 +65,129 @@ main.append(composer, workspace);
 const footer = element('footer', 'page-footer', 'Планируйте небольшими шагами.');
 document.body.append(header, main, footer);
 
+let tasks = [];
+let editingId = null;
+add.disabled = false;
+
+function validDate(value) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(value + 'T12:00:00Z');
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+function checkFields(title, date) {
+  title.value = title.value.trim();
+  title.setCustomValidity(title.value ? '' : 'Введите название задачи.');
+  date.setCustomValidity(validDate(date.value) ? '' : 'Укажите существующую дату.');
+  return title.reportValidity() && date.reportValidity();
+}
+
+form.addEventListener('input', event => event.target.setCustomValidity(''));
+form.addEventListener('submit', event => {
+  event.preventDefault();
+  if (!checkFields(titleField.input, dateField.input)) return;
+  tasks.push({
+    id: crypto.randomUUID(),
+    title: titleField.input.value,
+    due: dateField.input.value,
+    done: false
+  });
+  form.reset();
+  commit();
+  status.textContent = 'Задача добавлена.';
+  titleField.input.focus();
+});
+
+function button(text, action) {
+  const node = element('button', 'small-button', text);
+  node.type = 'button';
+  node.addEventListener('click', action);
+  return node;
+}
+
+function commit() {
+  render();
+}
+
+function render() {
+  const focused = document.activeElement.id;
+  list.replaceChildren();
+  let shown = tasks;
+  for (const task of shown) {
+    const row = element('li', 'task-row');
+    row.dataset.id = task.id;
+    row.classList.toggle('done', task.done);
+    if (editingId === task.id) {
+      const editor = element('form', 'inline-editor');
+      const name = field('Название', 'edit-title', 'text');
+      const due = field('Срок', 'edit-date', 'date');
+      name.input.value = task.title;
+      due.input.value = task.due;
+      const submit = element('button', 'primary', 'Сохранить');
+      submit.type = 'submit';
+      const cancel = button('Отмена', () => {
+        editingId = null;
+        render();
+        document.getElementById('edit-' + task.id).focus();
+      });
+      editor.append(name.group, due.group, submit, cancel);
+      editor.addEventListener('input', event => event.target.setCustomValidity(''));
+      editor.addEventListener('submit', event => {
+        event.preventDefault();
+        if (!checkFields(name.input, due.input)) return;
+        task.title = name.input.value;
+        task.due = due.input.value;
+        editingId = null;
+        commit();
+        status.textContent = 'Изменения сохранены.';
+        const editButton = document.getElementById('edit-' + task.id);
+        (editButton || heading).focus();
+      });
+      row.append(editor);
+    } else {
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.id = 'done-' + task.id;
+      checkbox.checked = task.done;
+      checkbox.setAttribute('aria-label', 'Выполнено: ' + task.title);
+      checkbox.addEventListener('change', () => {
+        task.done = checkbox.checked;
+        commit();
+        status.textContent = task.done ? 'Задача выполнена.' : 'Задача возвращена в работу.';
+      });
+      const content = element('div', 'task-content');
+      const title = element('h3', 'task-name', task.title);
+      const date = element('time', 'muted', task.due.split('-').reverse().join('.'));
+      date.dateTime = task.due;
+      content.append(title, date);
+      const actions = element('div', 'row-actions');
+      const edit = button('Изменить', () => {
+        editingId = task.id;
+        render();
+        document.getElementById('edit-title').focus();
+      });
+      edit.id = 'edit-' + task.id;
+      const remove = button('Удалить', () => {
+        tasks = tasks.filter(item => item.id !== task.id);
+        commit();
+        status.textContent = 'Задача удалена.';
+        heading.focus();
+      });
+      actions.append(edit, remove);
+      row.append(checkbox, content, actions);
+    }
+    list.append(row);
+  }
+  const doneCount = tasks.filter(task => task.done).length;
+  summary.textContent = 'Всего: ' + tasks.length + '. Выполнено: ' + doneCount + '. Показано: ' + shown.length + '.';
+  empty.hidden = shown.length > 0;
+  empty.textContent = tasks.length ? 'По этим условиям задач нет.' : 'Запишите первую задачу слева.';
+  const previous = document.getElementById(focused);
+  if (previous && !previous.disabled) previous.focus();
+  else if (focused.startsWith('done-')) heading.focus();
+}
+heading.tabIndex = -1;
 
 
 
+render();
