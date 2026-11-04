@@ -178,6 +178,7 @@ function render() {
       });
       actions.append(edit, remove);
       row.append(checkbox, content, actions);
+      attachMovement(row, actions, task);
     }
     list.append(row);
   }
@@ -280,5 +281,72 @@ function restore() {
 }
 restore();
 
+const moveHint = element('p', 'muted', 'Для переноса выберите «Мой порядок» и сбросьте фильтры. Тяните за ↕ или используйте кнопки выше/ниже.');
+workspace.insertBefore(moveHint, list);
+let draggedId = null;
+
+function movementAllowed() {
+  return order.select.value === 'manual'
+    && filter.select.value === 'all'
+    && !search.input.value.trim()
+    && !day.input.value
+    && editingId === null;
+}
+
+function moveTask(id, targetId, after) {
+  const from = tasks.findIndex(task => task.id === id);
+  if (from < 0 || id === targetId || !movementAllowed()) return;
+  const [task] = tasks.splice(from, 1);
+  const target = tasks.findIndex(item => item.id === targetId);
+  tasks.splice(target + (after ? 1 : 0), 0, task);
+  commit();
+  status.textContent = 'Порядок задач изменён.';
+  document.getElementById('move-' + id).focus();
+}
+
+function attachMovement(row, actions, task) {
+  const enabled = movementAllowed();
+  const index = tasks.indexOf(task);
+  const handle = element('span', 'drag-handle', '↕');
+  handle.draggable = enabled;
+  handle.title = 'Перетащить задачу';
+  handle.setAttribute('aria-hidden', 'true');
+  const up = button('Выше', () => moveTask(task.id, tasks[index - 1].id, false));
+  const down = button('Ниже', () => moveTask(task.id, tasks[index + 1].id, true));
+  up.disabled = !enabled || index === 0;
+  down.disabled = !enabled || index === tasks.length - 1;
+  const focusTarget = element('span', 'move-label', 'Порядок');
+  focusTarget.id = 'move-' + task.id;
+  focusTarget.tabIndex = -1;
+  actions.append(focusTarget, up, down);
+  row.prepend(handle);
+  handle.addEventListener('dragstart', event => {
+    draggedId = task.id;
+    event.dataTransfer.setData('text/plain', task.id);
+    event.dataTransfer.effectAllowed = 'move';
+    row.classList.add('dragging');
+  });
+  handle.addEventListener('dragend', () => {
+    draggedId = null;
+    row.classList.remove('dragging');
+    list.querySelectorAll('.drop-target').forEach(node => node.classList.remove('drop-target'));
+  });
+  row.addEventListener('dragover', event => {
+    if (!draggedId || !movementAllowed()) return;
+    event.preventDefault();
+    row.classList.add('drop-target');
+  });
+  row.addEventListener('dragleave', event => {
+    if (!row.contains(event.relatedTarget)) row.classList.remove('drop-target');
+  });
+  row.addEventListener('drop', event => {
+    event.preventDefault();
+    row.classList.remove('drop-target');
+    if (!draggedId || event.dataTransfer.getData('text/plain') !== draggedId) return;
+    const bounds = row.getBoundingClientRect();
+    moveTask(draggedId, task.id, event.clientY > bounds.top + bounds.height / 2);
+    draggedId = null;
+  });
+}
 
 render();
