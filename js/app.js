@@ -1,3 +1,4 @@
+import { storageKey, statusOptions, sortOptions } from './data.js';
 
 function element(tag, className, text) {
   const node = document.createElement(tag);
@@ -106,6 +107,7 @@ function button(text, action) {
 }
 
 function commit() {
+  save();
   render();
 }
 
@@ -113,6 +115,7 @@ function render() {
   const focused = document.activeElement.id;
   list.replaceChildren();
   let shown = tasks;
+  shown = selectedTasks();
   for (const task of shown) {
     const row = element('li', 'task-row');
     row.dataset.id = task.id;
@@ -188,6 +191,94 @@ function render() {
 }
 heading.tabIndex = -1;
 
+const filters = element('div', 'filters');
+function selectField(labelText, id, choices) {
+  const group = element('div', 'field');
+  const label = element('label', '', labelText);
+  label.htmlFor = id;
+  const select = document.createElement('select');
+  select.id = id;
+  for (const [value, text] of choices) {
+    const option = element('option', '', text);
+    option.value = value;
+    select.append(option);
+  }
+  group.append(label, select);
+  return { group, select };
+}
+const search = field('Найти по названию', 'search', 'search');
+const day = field('На дату', 'filter-date', 'date');
+search.input.required = false;
+day.input.required = false;
+const filter = selectField('Состояние', 'filter-status', statusOptions);
+const order = selectField('Порядок', 'sort', sortOptions);
+const reset = button('Сбросить условия', () => {
+  search.input.value = '';
+  day.input.value = '';
+  filter.select.value = 'all';
+  order.select.value = 'manual';
+  editingId = null;
+  render();
+});
+filters.append(search.group, day.group, filter.group, order.group, reset);
+workspace.insertBefore(filters, summary);
+filters.addEventListener('input', () => { editingId = null; render(); });
+filters.addEventListener('change', () => { editingId = null; render(); });
+
+function selectedTasks() {
+  const query = search.input.value.trim().toLocaleLowerCase('ru');
+  const result = tasks.filter(task => {
+    const matchesStatus = filter.select.value === 'all' || task.done === (filter.select.value === 'done');
+    const matchesTitle = task.title.toLocaleLowerCase('ru').includes(query);
+    const matchesDate = !day.input.value || task.due === day.input.value;
+    return matchesStatus && matchesTitle && matchesDate;
+  });
+  if (order.select.value === 'soon') result.sort((a, b) => a.due.localeCompare(b.due));
+  if (order.select.value === 'later') result.sort((a, b) => b.due.localeCompare(a.due));
+  return result;
+}
+
+function save() {
+  try {
+    localStorage.setItem(storageKey, JSON.stringify(tasks));
+    storageNote.textContent = '';
+  } catch (error) {
+    console.warn('Запись учебного списка не удалась:', error);
+    storageNote.textContent = 'Сохранение недоступно. После обновления изменения могут потеряться.';
+  }
+}
+
+function restore() {
+  try {
+    const raw = localStorage.getItem(storageKey);
+    if (raw === null) return;
+    const saved = JSON.parse(raw);
+    if (!Array.isArray(saved)) throw new Error('Ожидался массив задач');
+    const seen = new Set();
+    let skipped = 0;
+    for (const item of saved) {
+      const valid = item
+        && typeof item.id === 'string'
+        && /^[a-zA-Z0-9-]{1,80}$/.test(item.id)
+        && typeof item.title === 'string'
+        && item.title.trim().length > 0
+        && item.title.length <= 120
+        && validDate(item.due)
+        && typeof item.done === 'boolean';
+      if (!valid || seen.has(item.id)) {
+        skipped += 1;
+        continue;
+      }
+      seen.add(item.id);
+      tasks.push({ id: item.id, title: item.title.trim(), due: item.due, done: item.done });
+    }
+    if (skipped) storageNote.textContent = 'Пропущено повреждённых записей: ' + skipped + '.';
+  } catch (error) {
+    console.warn('Чтение учебного списка не удалось:', error);
+    storageNote.textContent = 'Не удалось восстановить задачи. Можно начать новый список.';
+  }
+}
+restore();
 
 
 render();
